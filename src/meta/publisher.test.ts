@@ -85,4 +85,52 @@ describe('Publisher Service', () => {
     // Check status updates in DB (publishing -> container_id -> published)
     expect(db.update).toHaveBeenCalledTimes(3);
   });
+
+  it('should publish to a facebook page via createFacebookMediaPost', async () => {
+    const mockPost = {
+      id: 'post-fb',
+      account_id: 'acc-fb',
+      status: 'pending',
+      media_urls: JSON.stringify(['https://example.com/img.jpg']),
+      caption: 'FB caption',
+      container_id: null,
+    };
+    const mockAccount = {
+      id: 'acc-fb',
+      platform: 'facebook',
+      external_id: 'page-123',
+      access_token: encryptedToken,
+    };
+
+    const selectMock = vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          limit: vi.fn()
+            .mockResolvedValueOnce([mockPost])
+            .mockResolvedValueOnce([mockAccount]),
+        })
+      })
+    });
+    // @ts-ignore
+    db.select.mockImplementation(selectMock);
+
+    const updateMock = vi.fn().mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue(true)
+      })
+    });
+    // @ts-ignore
+    db.update.mockImplementation(updateMock);
+
+    vi.mocked(graphApi.createFacebookMediaPost).mockResolvedValue({ postId: 'fb-post-123' });
+
+    await publishPost('post-fb');
+
+    expect(graphApi.createFacebookMediaPost).toHaveBeenCalledWith('page-123', fakeToken, {
+      imageUrl: 'https://example.com/img.jpg',
+      videoUrl: undefined,
+      caption: 'FB caption',
+    });
+    expect(db.update).toHaveBeenCalledTimes(1);
+  });
 });

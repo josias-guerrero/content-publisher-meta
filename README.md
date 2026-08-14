@@ -52,9 +52,15 @@ Microservicio privado para programar y publicar contenido en Instagram y Faceboo
    | `API_KEY`                | **Obligatoria para producción.** Llave secreta que protege todos los endpoints. Recomendado: `openssl rand -hex 16` |
    | `DATABASE_PATH`          | Ruta del archivo SQLite (por defecto `./data/publisher.db`)                                                         |
    | `TOKEN_ENCRYPTION_KEY`   | Llave AES-256-GCM en **hex de exactamente 64 caracteres (32 bytes)**: `openssl rand -hex 32`                        |
-   | `META_APP_ID`            | ID de tu app en Meta for Developers                                                                                 |
-   | `META_APP_SECRET`        | Secret de tu app en Meta for Developers                                                                             |
-   | `META_GRAPH_API_VERSION` | Versión de la Graph API (por defecto `v21.0`)                                                                       |
+   | `META_INSTAGRAM_APP_ID`    | Instagram App ID (Instagram API with Instagram Login → Business login settings)                   |
+   | `META_INSTAGRAM_APP_SECRET` | Instagram App Secret del mismo panel                                                             |
+   | `META_FACEBOOK_APP_ID`     | App ID de la segunda app de Meta (tipo **Business** con **Facebook Login for Business**)        |
+   | `META_FACEBOOK_APP_SECRET` | App Secret de esa misma app                                                                      |
+   | `META_GRAPH_API_VERSION`   | Versión de la Graph API para llamadas de Facebook (por defecto `v21.0`)                          |
+
+   > **Nota**: Meta no permite usar Facebook Login e Instagram Login en la misma app. Por eso se usan
+   > **dos apps**: una para Instagram (Instagram API with Instagram Login) y otra para Facebook
+   > (Facebook Login for Business). El flujo de login de cada una está en `/auth/instagram/*` y `/auth/facebook/*`.
 
 3. Correr migraciones de Base de Datos
 
@@ -125,7 +131,7 @@ curl http://127.0.0.1:3000/health
 
 ### `POST /accounts`
 
-Registra una cuenta de Instagram o Facebook. El token de acceso se **cifra** (AES-256-GCM) antes de guardarse en la base de datos.
+Registra una cuenta de Instagram o Facebook. El token de acceso se **cifra** (AES-256-GCM) antes de guardarse en la base de datos. Si no se envía `name`, se obtiene automáticamente desde la plataforma (username de Instagram / nombre de la página de Facebook).
 
 ```bash
 curl -X POST http://127.0.0.1:3000/accounts \
@@ -145,6 +151,7 @@ curl -X POST http://127.0.0.1:3000/accounts \
 | ---------------- | ----------------------------- | ----------- | ----------------------------------------------------------- |
 | `platform`       | `"instagram"` \| `"facebook"` | ✅          | Plataforma de destino                                       |
 | `externalId`     | `string`                      | ✅          | ID numérico del Instagram Business / Facebook Page          |
+| `name`           | `string`                      | ❌          | Nombre mostrable de la cuenta. Si se omite, se obtiene de la plataforma |
 | `accessToken`    | `string`                      | ✅          | User Access Token (largo plazo) con permisos de publicación |
 | `tokenExpiresAt` | `number`                      | ✅          | Timestamp Unix de expiración del token                      |
 
@@ -169,12 +176,15 @@ curl http://127.0.0.1:3000/accounts -H "X-API-Key: $API_KEY"
       "id": "5ce2946d-5c66-4350-9d96-ae72afa37383",
       "platform": "instagram",
       "external_id": "17841400000000000",
+      "name": "mi.marca",
       "token_expires_at": 4102444800,
       "created_at": 1786549559
     }
   ]
 }
 ```
+
+> El campo `name` es el nombre mostrable de la cuenta (username de Instagram / nombre de la página de Facebook). En cuentas creadas antes de esta columna, se devuelve `external_id` como respaldo.
 
 ### `POST /posts`
 
@@ -218,6 +228,35 @@ curl -X POST http://127.0.0.1:3000/posts \
   "error": "[\n  {\n    \"code\": \"invalid_format\",\n    \"path\": [\"mediaUrls\", 0],\n    \"message\": \"Invalid URL\"\n  }\n]"
 }
 ```
+
+### `POST /accounts/:id/test`
+
+Verifica que una cuenta registrada funciona de verdad **sin publicar nada**.
+
+- **Instagram**: valida el token contra `graph.instagram.com/me` (confirma que coincide con el `externalId` registrado) y, si pasas `imageUrl`, crea un **contenedor de prueba** y comprueba su estado hasta `FINISHED`. Un contenedor sin publicar es **invisible** y expira solo a las ~24h, así que no aparece en tu feed.
+- **Facebook**: valida que el token da acceso a la página registrada (`externalId`).
+
+```bash
+curl -X POST http://127.0.0.1:3000/accounts/:id/test \
+  -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
+  -d '{"imageUrl":"https://cdn.ejemplo.com/prueba.jpg"}'
+```
+
+**Respuesta (Instagram):**
+
+```json
+{
+  "platform": "instagram",
+  "external_id": "17841400000000000",
+  "matched": true,
+  "username": "mi.marca",
+  "account_type": "BUSINESS",
+  "container": { "container_id": "17912345678901234", "status": "FINISHED" }
+}
+```
+
+- `matched: true` → el token corresponde a la cuenta registrada.
+- `container.status: "FINISHED"` → el contenedor quedó listo para publicar (equivalente a que `POST /posts` con esa cuenta funcionaría).
 
 ### `GET /posts`
 
@@ -324,16 +363,42 @@ publishing  ──► createMediaContainer (POST /{igUserId}/media)
 
 Si algo falla en cualquier paso (token inválido, media no lista, timeout), el post pasa a `failed` con el detalle del error en `error_message`.
 
-Además, un job diario (09:00) renueva automáticamente los tokens que expiran en menos de 7 días usando `META_APP_ID` y `META_APP_SECRET`.
+Además, un job diario (09:00) renueva automáticamente los tokens que expiran en menos de 7 días usando `graph.instagram.com/refresh_access_token`.
 
 ## Cómo obtener un token para probar la publicación
 
-1. En [Meta for Developers](https://developers.facebook.com) abre tu app (**Add product → Instagram**).
-2. Conecta tu cuenta de **Instagram Business** (o Facebook Page) y otorga `instagram_basic` + `instagram_content_publish` (IG) o `pages_manage_posts` (FB).
-3. Genera un **User Access Token** de larga duración (Graph API Explorer o Business Integrations).
-4. Obtén tu ID numérico de Instagram Business / Facebook Page (`GET /me/accounts` con el mismo token).
-5. Registra la cuenta con `POST /accounts` usando ese ID y token.
-6. Programa un post con `mediaUrls` apuntando a **archivos accesibles públicamente**.
+La API publica en **Instagram** (vía `graph.instagram.com`, token Instagram User) y en **Facebook**
+(vía `graph.facebook.com`, token de usuario con permiso sobre la página). Usa **dos apps de Meta**
+porque Meta no permite ambos logins en una sola.
+
+### Flujo automático (recomendado)
+
+La API incluye el login OAuth; al terminar registra la cuenta en la base de datos automáticamente:
+
+1. Abre el login de la plataforma deseada en tu navegador:
+   - Instagram: `http://localhost:3000/auth/instagram/login`
+   - Facebook: `http://localhost:3000/auth/facebook/login`
+2. Autoriza la app y acepta los permisos. Meta te redirige al callback de la API
+   (`/auth/instagram/callback` o `/auth/facebook/callback`), que intercambia el código por un token
+   de larga duración (60 días), obtiene el ID de la cuenta y la registra.
+3. El callback responde JSON con las cuentas creadas:
+   - Instagram: `{ "account": { "id": "...", "external_id": "<IG_ID>", ... } }`
+   - Facebook: `{ "accounts": [ { "id": "...", "external_id": "<PAGE_ID>", "name": "Mi Página", ... } ] }`
+
+> Los redirect URIs que registres en Meta deben coincidir exactamente con los callbacks:
+> `http://localhost:3000/auth/instagram/callback` y `http://localhost:3000/auth/facebook/callback`
+> (o el dominio público equivalente).
+
+### Alternativa manual (solo Instagram)
+
+1. En [Meta for Developers](https://developers.facebook.com) abre tu app → **Instagram → API setup with Instagram login → Business login settings** y copia el **Instagram App ID** y el **Instagram App Secret**.
+2. En el mismo panel, pulsa **Generate token**, inicia sesión con tu cuenta de Instagram profesional y copia el token (ya es de larga duración, 60 días).
+3. Obtén tu ID de Instagram professional account:
+   ```bash
+   curl "https://graph.instagram.com/me?fields=user_id,username&access_token=<TOKEN>"
+   ```
+   El valor de `user_id` es el `externalId`.
+4. Registra la cuenta con `POST /accounts` usando ese ID y token.
 
 ## Flujo de uso rápido (consulta interna)
 

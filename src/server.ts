@@ -3,18 +3,21 @@ import { config } from './config.js';
 import apiKeyMiddleware from './middleware/api-key.js';
 import { accountsRoutes } from './modules/accounts/accounts.routes.js';
 import { postsRoutes } from './modules/posts/posts.routes.js';
+import { authRoutes } from './modules/auth/auth.routes.js';
 import { startScheduler } from './jobs/scheduler.js';
 import { startTokenRefreshJob } from './jobs/token-refresh.js';
 import { logger } from './lib/logger.js';
 
 const app = fastify({
   loggerInstance: logger,
+  trustProxy: true,
 });
 
 // Middleware
 app.register(apiKeyMiddleware);
 
 // Routes
+app.register(authRoutes, { prefix: '/auth' });
 app.register(accountsRoutes, { prefix: '/accounts' });
 app.register(postsRoutes, { prefix: '/posts' });
 

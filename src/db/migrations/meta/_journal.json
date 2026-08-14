@@ -8,6 +8,13 @@
       "when": 1785792673377,
       "tag": "0000_flashy_sleepwalker",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1786745456097,
+      "tag": "0001_fixed_shotgun",
+      "breakpoints": true
     }
   ]
 }

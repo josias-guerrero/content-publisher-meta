@@ -2,7 +2,7 @@ import cron from 'node-cron';
 import { lte, eq } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { accounts } from '../db/schema.js';
-import { refreshLongLivedToken } from '../meta/graph-api.js';
+import { refreshInstagramToken, refreshFacebookToken } from '../meta/graph-api.js';
 import { encrypt, decrypt } from '../lib/crypto.js';
 
 export function startTokenRefreshJob() {
@@ -29,7 +29,8 @@ export function startTokenRefreshJob() {
       for (const account of expiringAccounts) {
         try {
           const currentToken = decrypt(account.access_token);
-          const { accessToken: newToken, expiresIn } = await refreshLongLivedToken(currentToken);
+          const refreshToken = account.platform === 'facebook' ? refreshFacebookToken : refreshInstagramToken;
+          const { accessToken: newToken, expiresIn } = await refreshToken(currentToken);
           
           const encryptedNewToken = encrypt(newToken);
           const newExpiresAt = now + expiresIn;

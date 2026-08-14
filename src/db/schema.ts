@@ -4,6 +4,7 @@ export const accounts = sqliteTable('accounts', {
   id: text('id').primaryKey(), // UUID
   platform: text('platform', { enum: ['instagram', 'facebook'] }).notNull(),
   external_id: text('external_id').notNull(),
+  name: text('name'),
   access_token: text('access_token').notNull(), // cifrado
   token_expires_at: integer('token_expires_at').notNull(), // unix timestamp
   created_at: integer('created_at').notNull(),

@@ -26,6 +26,23 @@ export async function publishPost(postId: string): Promise<void> {
   const isVideo = mediaUrls[0].endsWith('.mp4');
 
   try {
+    if (account.platform === 'facebook') {
+      const publishRes = await graphApi.createFacebookMediaPost(account.external_id, accessToken, {
+        imageUrl: isVideo ? undefined : mediaUrls[0],
+        videoUrl: isVideo ? mediaUrls[0] : undefined,
+        caption: post.caption || undefined,
+      });
+
+      await db.update(posts).set({
+        status: 'published',
+        updated_at: now(),
+        error_message: null,
+      }).where(eq(posts.id, postId));
+
+      console.log(`[Publisher] Post ${postId} published successfully as Facebook Post ${publishRes.postId}`);
+      return;
+    }
+
     let containerId = post.container_id;
 
     // 1. Crear contenedor si no existe

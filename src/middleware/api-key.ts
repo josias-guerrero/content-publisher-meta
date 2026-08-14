@@ -9,8 +9,9 @@ const apiKeyMiddleware: FastifyPluginAsync = async (fastify) => {
   }
 
   fastify.addHook('onRequest', async (request, reply) => {
-    // Permitir /health sin api key (opcional)
-    if (request.url === '/health') return;
+    const path = request.url.split('?')[0];
+    // Permitir /health y el flujo OAuth de /auth (login + callbacks) sin api key
+    if (path === '/health' || path.startsWith('/auth/')) return;
 
     const apiKey = request.headers['x-api-key'];
     if (apiKey !== config.API_KEY) {
