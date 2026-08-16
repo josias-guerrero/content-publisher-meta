@@ -36,16 +36,14 @@ function requireConfig(key: string, value: string | undefined): string {
 export async function createMediaContainer(
   igUserId: string,
   accessToken: string,
-  params: { imageUrl?: string; videoUrl?: string; caption?: string }
+  params: { imageUrl?: string; videoUrl?: string; caption?: string; mediaType?: 'REELS' | 'STORIES' | 'VIDEO' }
 ): Promise<{ containerId: string }> {
   const urlParams = new URLSearchParams();
   urlParams.append('access_token', accessToken);
 
   if (params.imageUrl) urlParams.append('image_url', params.imageUrl);
-  if (params.videoUrl) {
-    urlParams.append('video_url', params.videoUrl);
-    urlParams.append('media_type', 'REELS');
-  }
+  if (params.videoUrl) urlParams.append('video_url', params.videoUrl);
+  if (params.mediaType) urlParams.append('media_type', params.mediaType);
   if (params.caption) urlParams.append('caption', params.caption);
 
   const res = await fetch(`${INSTAGRAM_API_BASE_URL}/${igUserId}/media`, {

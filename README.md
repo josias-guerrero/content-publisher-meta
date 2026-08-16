@@ -207,8 +207,9 @@ curl -X POST http://127.0.0.1:3000/posts \
 | Campo         | Tipo              | Obligatorio | Descripción                                                 |
 | ------------- | ----------------- | ----------- | ----------------------------------------------------------- |
 | `accountId`   | `string` (UUID)   | ✅          | ID de una cuenta registrada                                 |
-| `mediaUrls`   | `string[]` (URLs) | ✅          | Mínimo 1 URL pública de imagen o video (`.mp4` = Reels)     |
+| `mediaUrls`   | `string[]` (URLs) | ✅          | Mínimo 1 URL pública de imagen o video (`.mp4` = video)     |
 | `caption`     | `string`          | ❌          | Texto de la publicación                                     |
+| `type`        | `"post"` \| `"reels"` \| `"story"` | ❌ | Tipo de publicación. Por defecto se infiere: imagen → `post`, video `.mp4` → `reels`. `story` publica una **historia de Instagram** (solo IG; en Facebook se publica como post normal) |
 | `scheduledAt` | `number`          | ✅          | Timestamp Unix futuro. Debe ser mayor que el momento actual |
 
 **Respuesta `201 Created`**
@@ -216,6 +217,11 @@ curl -X POST http://127.0.0.1:3000/posts \
 ```json
 { "id": "b6b0ad0c-fc40-48eb-b2ae-18674726a9a9" }
 ```
+
+> El `type` se guarda en cada post y se muestra en `GET /posts`. Ejemplos:
+> - **Post de feed**: `"type": "post"` con imagen → foto en el feed; con `.mp4` → video en el feed (IG `media_type=VIDEO`).
+> - **Reels**: `"type": "reels"` con `.mp4` → reel en IG.
+> - **Story**: `"type": "story"` → historia de IG (expira a las 24h; el `caption` se ignora en el contenedor).
 
 **Errores comunes** (`400 Bad Request`)
 
@@ -258,6 +264,14 @@ curl -X POST http://127.0.0.1:3000/accounts/:id/test \
 - `matched: true` → el token corresponde a la cuenta registrada.
 - `container.status: "FINISHED"` → el contenedor quedó listo para publicar (equivalente a que `POST /posts` con esa cuenta funcionaría).
 
+### `DELETE /accounts/:id`
+
+Elimina una cuenta registrada (borra también sus posts programados). Útil para limpiar páginas de Facebook que se registraron de más.
+
+```bash
+curl -X DELETE http://127.0.0.1:3000/accounts/:id -H "X-API-Key: $API_KEY"
+```
+
 ### `GET /posts`
 
 Lista publicaciones con filtros opcionales.
@@ -286,6 +300,7 @@ curl "http://127.0.0.1:3000/posts?status=pending&limit=20&offset=0" \
       "account_id": "5ce2946d-5c66-4350-9d96-ae72afa37383",
       "caption": "Mi post",
       "media_urls": ["https://cdn.ejemplo.com/imagen.jpg"],
+      "type": "post",
       "scheduled_at": 1786553162,
       "status": "pending",
       "container_id": null,

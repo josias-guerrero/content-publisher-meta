@@ -61,6 +61,29 @@ describe('Accounts Routes', () => {
     expect(accountsService.createAccount).toHaveBeenCalledWith(payload);
   });
 
+  it('deletes an existing account', async () => {
+    vi.mocked(accountsService.deleteAccount).mockResolvedValue({ changes: 1 } as never);
+
+    const response = await app.inject({
+      method: 'DELETE',
+      url: '/accounts/acc-1',
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(accountsService.deleteAccount).toHaveBeenCalledWith('acc-1');
+  });
+
+  it('returns 404 when deleting an unknown account', async () => {
+    vi.mocked(accountsService.deleteAccount).mockResolvedValue({ changes: 0 } as never);
+
+    const response = await app.inject({
+      method: 'DELETE',
+      url: '/accounts/unknown-id',
+    });
+
+    expect(response.statusCode).toBe(404);
+  });
+
   it('returns 404 when testing an unknown account', async () => {
     vi.mocked(accountsService.getAccountWithToken).mockResolvedValue(null);
 

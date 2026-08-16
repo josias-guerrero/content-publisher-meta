@@ -17,6 +17,15 @@ export async function accountsRoutes(fastify: FastifyInstance) {
     return { accounts };
   });
 
+  fastify.delete('/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const result = await accountsService.deleteAccount(id);
+    if (!result.changes) {
+      return reply.status(404).send({ error: 'Account not found' });
+    }
+    return reply.status(204).send();
+  });
+
   fastify.post('/:id/test', async (request, reply) => {
     const { id } = request.params as { id: string };
     const body = testAccountSchema.parse(request.body ?? {});

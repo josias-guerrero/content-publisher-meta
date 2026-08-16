@@ -17,6 +17,9 @@ export const posts = sqliteTable('posts', {
     .references(() => accounts.id, { onDelete: 'cascade' }),
   caption: text('caption'),
   media_urls: text('media_urls').notNull(), // JSON array serializado
+  type: text('type', {
+    enum: ['post', 'reels', 'story'],
+  }),
   scheduled_at: integer('scheduled_at').notNull(), // unix timestamp
   status: text('status', {
     enum: ['pending', 'publishing', 'published', 'failed'],

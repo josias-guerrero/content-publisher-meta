@@ -35,6 +35,42 @@ describe('Posts Routes', () => {
     expect(postsService.createPost).toHaveBeenCalledWith(payload);
   });
 
+  it('should create a post with an explicit type', async () => {
+    vi.mocked(postsService.createPost).mockResolvedValue({ id: '11111111-1111-1111-1111-111111111111' });
+
+    const payload = {
+      accountId: crypto.randomUUID(),
+      caption: 'Historia',
+      mediaUrls: ['https://example.com/img.jpg'],
+      type: 'story' as const,
+      scheduledAt: Math.floor(Date.now() / 1000) + 3600,
+    };
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/posts',
+      payload,
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(postsService.createPost).toHaveBeenCalledWith(payload);
+  });
+
+  it('should reject an invalid post type', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/posts',
+      payload: {
+        accountId: crypto.randomUUID(),
+        mediaUrls: ['https://example.com/img.jpg'],
+        type: 'carrete',
+        scheduledAt: Math.floor(Date.now() / 1000) + 3600,
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+  });
+
   it('should list posts', async () => {
     const mockPost = {
       id: '11111111-1111-1111-1111-111111111111',

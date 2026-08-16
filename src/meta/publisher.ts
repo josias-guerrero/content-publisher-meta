@@ -24,13 +24,15 @@ export async function publishPost(postId: string): Promise<void> {
   const accessToken = decrypt(account.access_token);
   const mediaUrls: string[] = JSON.parse(post.media_urls);
   const isVideo = mediaUrls[0].endsWith('.mp4');
+  const kind: 'post' | 'reels' | 'story' = post.type ?? (isVideo ? 'reels' : 'post');
+  const caption = post.caption || undefined;
 
   try {
     if (account.platform === 'facebook') {
       const publishRes = await graphApi.createFacebookMediaPost(account.external_id, accessToken, {
         imageUrl: isVideo ? undefined : mediaUrls[0],
         videoUrl: isVideo ? mediaUrls[0] : undefined,
-        caption: post.caption || undefined,
+        caption,
       });
 
       await db.update(posts).set({
@@ -48,11 +50,18 @@ export async function publishPost(postId: string): Promise<void> {
     // 1. Crear contenedor si no existe
     if (!containerId) {
       await db.update(posts).set({ status: 'publishing', updated_at: now() }).where(eq(posts.id, postId));
-      
+
+      const mediaType: 'REELS' | 'STORIES' | 'VIDEO' | undefined =
+        kind === 'reels' ? 'REELS'
+        : kind === 'story' ? 'STORIES'
+        : isVideo ? 'VIDEO'
+        : undefined;
+
       const res = await graphApi.createMediaContainer(account.external_id, accessToken, {
         imageUrl: isVideo ? undefined : mediaUrls[0],
         videoUrl: isVideo ? mediaUrls[0] : undefined,
-        caption: post.caption || undefined,
+        caption: kind === 'story' ? undefined : caption,
+        mediaType,
       });
       containerId = res.containerId;
       await db.update(posts).set({ container_id: containerId, updated_at: now() }).where(eq(posts.id, postId));

@@ -86,6 +86,102 @@ describe('Publisher Service', () => {
     expect(db.update).toHaveBeenCalledTimes(3);
   });
 
+  it('should publish a reels video when type=reels', async () => {
+    const mockPost = {
+      id: 'post-reels',
+      account_id: 'acc-1',
+      status: 'pending',
+      media_urls: JSON.stringify(['https://example.com/video.mp4']),
+      caption: 'Reel',
+      container_id: null,
+      type: 'reels',
+    };
+    const mockAccount = {
+      id: 'acc-1',
+      external_id: 'ext-acc-1',
+      access_token: encryptedToken,
+    };
+
+    const selectMock = vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          limit: vi.fn()
+            .mockResolvedValueOnce([mockPost])
+            .mockResolvedValueOnce([mockAccount]),
+        })
+      })
+    });
+    // @ts-ignore
+    db.select.mockImplementation(selectMock);
+    const updateMock = vi.fn().mockReturnValue({
+      set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(true) })
+    });
+    // @ts-ignore
+    db.update.mockImplementation(updateMock);
+
+    vi.mocked(graphApi.createMediaContainer).mockResolvedValue({ containerId: 'container-reels' });
+    vi.mocked(graphApi.getContainerStatus).mockResolvedValue({ statusCode: 'FINISHED' });
+    vi.mocked(graphApi.publishContainer).mockResolvedValue({ postId: 'meta-reels' });
+
+    await publishPost('post-reels');
+
+    expect(graphApi.createMediaContainer).toHaveBeenCalledWith('ext-acc-1', fakeToken, {
+      imageUrl: undefined,
+      videoUrl: 'https://example.com/video.mp4',
+      caption: 'Reel',
+      mediaType: 'REELS',
+    });
+    expect(graphApi.publishContainer).toHaveBeenCalledWith('ext-acc-1', fakeToken, 'container-reels');
+  });
+
+  it('should publish an instagram story when type=story (no caption in container)', async () => {
+    const mockPost = {
+      id: 'post-story',
+      account_id: 'acc-1',
+      status: 'pending',
+      media_urls: JSON.stringify(['https://example.com/img.jpg']),
+      caption: 'Historia',
+      container_id: null,
+      type: 'story',
+    };
+    const mockAccount = {
+      id: 'acc-1',
+      external_id: 'ext-acc-1',
+      access_token: encryptedToken,
+    };
+
+    const selectMock = vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          limit: vi.fn()
+            .mockResolvedValueOnce([mockPost])
+            .mockResolvedValueOnce([mockAccount]),
+        })
+      })
+    });
+    // @ts-ignore
+    db.select.mockImplementation(selectMock);
+    const updateMock = vi.fn().mockReturnValue({
+      set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(true) })
+    });
+    // @ts-ignore
+    db.update.mockImplementation(updateMock);
+
+    vi.mocked(graphApi.createMediaContainer).mockResolvedValue({ containerId: 'container-story' });
+    vi.mocked(graphApi.getContainerStatus).mockResolvedValue({ statusCode: 'FINISHED' });
+    vi.mocked(graphApi.publishContainer).mockResolvedValue({ postId: 'meta-story' });
+
+    await publishPost('post-story');
+
+    expect(graphApi.createMediaContainer).toHaveBeenCalledWith('ext-acc-1', fakeToken, {
+      imageUrl: 'https://example.com/img.jpg',
+      videoUrl: undefined,
+      caption: undefined,
+      mediaType: 'STORIES',
+    });
+    expect(graphApi.publishContainer).toHaveBeenCalledWith('ext-acc-1', fakeToken, 'container-story');
+  });
+
   it('should publish to a facebook page via createFacebookMediaPost', async () => {
     const mockPost = {
       id: 'post-fb',

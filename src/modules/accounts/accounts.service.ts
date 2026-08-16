@@ -58,3 +58,7 @@ export async function getAccountWithToken(id: string) {
   if (!result.length) return null;
   return { ...result[0], access_token: decrypt(result[0].access_token) };
 }
+
+export async function deleteAccount(id: string) {
+  return await db.delete(accounts).where(eq(accounts.id, id));
+}

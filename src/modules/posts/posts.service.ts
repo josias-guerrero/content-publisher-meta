@@ -18,6 +18,7 @@ export async function createPost(data: CreatePostInput) {
     account_id: data.accountId,
     caption: data.caption,
     media_urls: JSON.stringify(data.mediaUrls),
+    type: data.type ?? null,
     scheduled_at: data.scheduledAt,
     status: 'pending',
     created_at: now,
