@@ -1,14 +1,18 @@
-import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
-export const accounts = sqliteTable('accounts', {
-  id: text('id').primaryKey(), // UUID
-  platform: text('platform', { enum: ['instagram', 'facebook'] }).notNull(),
-  external_id: text('external_id').notNull(),
-  name: text('name'),
-  access_token: text('access_token').notNull(), // cifrado
-  token_expires_at: integer('token_expires_at').notNull(), // unix timestamp
-  created_at: integer('created_at').notNull(),
-});
+export const accounts = sqliteTable(
+  'accounts',
+  {
+    id: text('id').primaryKey(), // UUID
+    platform: text('platform', { enum: ['instagram', 'facebook'] }).notNull(),
+    external_id: text('external_id').notNull(),
+    name: text('name'),
+    access_token: text('access_token').notNull(), // cifrado
+    token_expires_at: integer('token_expires_at').notNull(), // unix timestamp
+    created_at: integer('created_at').notNull(),
+  },
+  (table) => [uniqueIndex('accounts_platform_external_id_unique').on(table.platform, table.external_id)]
+);
 
 export const posts = sqliteTable('posts', {
   id: text('id').primaryKey(), // UUID

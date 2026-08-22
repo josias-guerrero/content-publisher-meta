@@ -21,21 +21,31 @@ async function resolveAccountName(
 }
 
 export async function createAccount(data: CreateAccountInput) {
-  const id = randomUUID();
   const encryptedToken = encrypt(data.accessToken);
   const name = data.name ?? (await resolveAccountName(data.platform, data.externalId, data.accessToken));
 
-  await db.insert(accounts).values({
-    id,
-    platform: data.platform,
-    external_id: data.externalId,
-    name,
-    access_token: encryptedToken,
-    token_expires_at: data.tokenExpiresAt,
-    created_at: Math.floor(Date.now() / 1000),
-  });
+  const [account] = await db
+    .insert(accounts)
+    .values({
+      id: randomUUID(),
+      platform: data.platform,
+      external_id: data.externalId,
+      name,
+      access_token: encryptedToken,
+      token_expires_at: data.tokenExpiresAt,
+      created_at: Math.floor(Date.now() / 1000),
+    })
+    .onConflictDoUpdate({
+      target: [accounts.platform, accounts.external_id],
+      set: {
+        name,
+        access_token: encryptedToken,
+        token_expires_at: data.tokenExpiresAt,
+      },
+    })
+    .returning({ id: accounts.id });
 
-  return { id };
+  return { id: account.id };
 }
 
 export async function listAccounts() {

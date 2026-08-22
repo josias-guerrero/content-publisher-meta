@@ -65,10 +65,10 @@ Microservicio privado para programar y publicar contenido en Instagram y Faceboo
 3. Correr migraciones de Base de Datos
 
    ```bash
-   bunx drizzle-kit push
+   bunx tsx src/db/prepare.ts && bunx drizzle-kit push
    ```
 
-   _Nota: `drizzle-kit push` aplica los cambios a SQLite directamente._
+   _Nota: `prepare` elimina cuentas vinculadas duplicadas conservando la más reciente y crea el índice único `(platform, external_id)`; `drizzle-kit push` aplica el resto de cambios al esquema directamente en SQLite._
 
 ## Correr el Servidor
 
