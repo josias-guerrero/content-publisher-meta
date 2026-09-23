@@ -62,6 +62,8 @@ export async function publishPost(postId: string): Promise<void> {
         videoUrl: isVideo ? mediaUrls[0] : undefined,
         caption: kind === 'story' ? undefined : caption,
         mediaType,
+        thumbOffset: post.thumb_offset ?? undefined,
+        coverUrl: post.cover_url ?? undefined,
       });
       containerId = res.containerId;
       await db.update(posts).set({ container_id: containerId, updated_at: now() }).where(eq(posts.id, postId));

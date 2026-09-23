@@ -95,6 +95,8 @@ describe('Publisher Service', () => {
       caption: 'Reel',
       container_id: null,
       type: 'reels',
+      thumb_offset: 2000,
+      cover_url: 'https://example.com/cover.jpg'
     };
     const mockAccount = {
       id: 'acc-1',
@@ -130,6 +132,8 @@ describe('Publisher Service', () => {
       videoUrl: 'https://example.com/video.mp4',
       caption: 'Reel',
       mediaType: 'REELS',
+      thumbOffset: 2000,
+      coverUrl: 'https://example.com/cover.jpg',
     });
     expect(graphApi.publishContainer).toHaveBeenCalledWith('ext-acc-1', fakeToken, 'container-reels');
   });

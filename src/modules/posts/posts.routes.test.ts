@@ -21,6 +21,8 @@ describe('Posts Routes', () => {
       accountId: crypto.randomUUID(),
       caption: 'Test post',
       mediaUrls: ['https://example.com/img.jpg'],
+      thumbOffset: 3000,
+      coverUrl: 'https://example.com/cover.jpg',
       scheduledAt: Math.floor(Date.now() / 1000) + 3600, // 1 hour in future
     };
 

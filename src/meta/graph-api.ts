@@ -36,7 +36,7 @@ function requireConfig(key: string, value: string | undefined): string {
 export async function createMediaContainer(
   igUserId: string,
   accessToken: string,
-  params: { imageUrl?: string; videoUrl?: string; caption?: string; mediaType?: 'REELS' | 'STORIES' | 'VIDEO' }
+  params: { imageUrl?: string; videoUrl?: string; caption?: string; mediaType?: 'REELS' | 'STORIES' | 'VIDEO'; thumbOffset?: number; coverUrl?: string }
 ): Promise<{ containerId: string }> {
   const urlParams = new URLSearchParams();
   urlParams.append('access_token', accessToken);
@@ -45,6 +45,11 @@ export async function createMediaContainer(
   if (params.videoUrl) urlParams.append('video_url', params.videoUrl);
   if (params.mediaType) urlParams.append('media_type', params.mediaType);
   if (params.caption) urlParams.append('caption', params.caption);
+  
+  if (params.mediaType === 'REELS') {
+    if (params.thumbOffset !== undefined) urlParams.append('thumb_offset', params.thumbOffset.toString());
+    if (params.coverUrl) urlParams.append('cover_url', params.coverUrl);
+  }
 
   const res = await fetch(`${INSTAGRAM_API_BASE_URL}/${igUserId}/media`, {
     method: 'POST',

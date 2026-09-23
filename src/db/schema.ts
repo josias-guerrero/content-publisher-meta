@@ -24,6 +24,8 @@ export const posts = sqliteTable('posts', {
   type: text('type', {
     enum: ['post', 'reels', 'story'],
   }),
+  thumb_offset: integer('thumb_offset'),
+  cover_url: text('cover_url'),
   scheduled_at: integer('scheduled_at').notNull(), // unix timestamp
   status: text('status', {
     enum: ['pending', 'publishing', 'published', 'failed'],

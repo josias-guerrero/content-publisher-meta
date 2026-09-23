@@ -19,6 +19,8 @@ export async function createPost(data: CreatePostInput) {
     caption: data.caption,
     media_urls: JSON.stringify(data.mediaUrls),
     type: data.type ?? null,
+    thumb_offset: data.thumbOffset ?? null,
+    cover_url: data.coverUrl ?? null,
     scheduled_at: data.scheduledAt,
     status: 'pending',
     created_at: now,

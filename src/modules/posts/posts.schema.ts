@@ -5,6 +5,8 @@ export const createPostSchema = z.object({
   caption: z.string().optional(),
   mediaUrls: z.array(z.string().url()).min(1),
   type: z.enum(['post', 'reels', 'story']).optional(), // feed / reel / historia (IG)
+  thumbOffset: z.number().int().nonnegative().optional(), // milisegundos
+  coverUrl: z.string().url().optional(), // URL pública
   scheduledAt: z.number().int().positive(), // unix timestamp
 });
 
