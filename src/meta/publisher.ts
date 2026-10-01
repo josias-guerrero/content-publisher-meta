@@ -84,7 +84,21 @@ export async function publishPost(postId: string): Promise<void> {
     }
 
     if (!isReady) {
-      throw new Error('Timeout waiting for container to be ready (FINISHED)');
+      const MAX_WAIT_SECONDS = 15 * 60; // 15 minutos desde scheduled_at
+      const isExpired = (now() - post.scheduled_at) > MAX_WAIT_SECONDS;
+
+      if (isExpired) {
+        throw new Error(`Timeout waiting for container to be ready (exceeded 15 minutes from scheduled_at)`);
+      }
+
+      // Si se agotan las vueltas y sigue en procesamiento, vuelve a pending manteniendo el container_id
+      await db.update(posts).set({
+        status: 'pending',
+        updated_at: now(),
+      }).where(eq(posts.id, postId));
+
+      console.log(`[Publisher] Post ${postId} container ${containerId} still in progress. Kept container_id and reset to pending for next tick.`);
+      return;
     }
 
     // 3. Publicar

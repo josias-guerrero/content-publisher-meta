@@ -20,6 +20,10 @@ describe('Publisher Service', () => {
   
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn: any) => {
+      fn();
+      return 0 as any;
+    });
   });
 
   it('should process the 3-step publishing flow successfully', async () => {
@@ -232,5 +236,221 @@ describe('Publisher Service', () => {
       caption: 'FB caption',
     });
     expect(db.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('should reset post to pending when container is still IN_PROGRESS within 15 minutes', async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const mockPost = {
+      id: 'post-video-pending',
+      account_id: 'acc-1',
+      status: 'pending',
+      scheduled_at: nowSec - 60, // 1 minuto atrás
+      media_urls: JSON.stringify(['https://example.com/story.mp4']),
+      caption: null,
+      container_id: null,
+      type: 'story',
+    };
+    const mockAccount = {
+      id: 'acc-1',
+      external_id: 'ext-acc-1',
+      access_token: encryptedToken,
+    };
+
+    const selectMock = vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          limit: vi.fn()
+            .mockResolvedValueOnce([mockPost])
+            .mockResolvedValueOnce([mockAccount]),
+        })
+      })
+    });
+    // @ts-ignore
+    db.select.mockImplementation(selectMock);
+
+    const setMock = vi.fn().mockReturnValue({
+      where: vi.fn().mockResolvedValue(true)
+    });
+    const updateMock = vi.fn().mockReturnValue({ set: setMock });
+    // @ts-ignore
+    db.update.mockImplementation(updateMock);
+
+    vi.mocked(graphApi.createMediaContainer).mockResolvedValue({ containerId: 'container-slow' });
+    // Siempre IN_PROGRESS
+    vi.mocked(graphApi.getContainerStatus).mockResolvedValue({ statusCode: 'IN_PROGRESS' });
+
+    await publishPost('post-video-pending');
+
+    // Debe haber consultado el status 10 veces
+    expect(graphApi.getContainerStatus).toHaveBeenCalledTimes(10);
+    // NO debe haber publicado el contenedor
+    expect(graphApi.publishContainer).not.toHaveBeenCalled();
+
+    // Verificamos que el último update fue volver a 'pending' (y no 'failed')
+    expect(setMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        status: 'pending',
+      })
+    );
+  });
+
+  it('should resume with existing container_id on next tick without re-creating container', async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const mockPost = {
+      id: 'post-video-resumed',
+      account_id: 'acc-1',
+      status: 'pending',
+      scheduled_at: nowSec - 120, // 2 minutos atrás
+      media_urls: JSON.stringify(['https://example.com/story.mp4']),
+      caption: null,
+      container_id: 'container-existing-123',
+      type: 'story',
+    };
+    const mockAccount = {
+      id: 'acc-1',
+      external_id: 'ext-acc-1',
+      access_token: encryptedToken,
+    };
+
+    const selectMock = vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          limit: vi.fn()
+            .mockResolvedValueOnce([mockPost])
+            .mockResolvedValueOnce([mockAccount]),
+        })
+      })
+    });
+    // @ts-ignore
+    db.select.mockImplementation(selectMock);
+
+    const setMock = vi.fn().mockReturnValue({
+      where: vi.fn().mockResolvedValue(true)
+    });
+    const updateMock = vi.fn().mockReturnValue({ set: setMock });
+    // @ts-ignore
+    db.update.mockImplementation(updateMock);
+
+    // En este tick Meta ya terminó el contenedor
+    vi.mocked(graphApi.getContainerStatus).mockResolvedValue({ statusCode: 'FINISHED' });
+    vi.mocked(graphApi.publishContainer).mockResolvedValue({ postId: 'meta-post-resumed' });
+
+    await publishPost('post-video-resumed');
+
+    // No debe crear contenedor nuevo
+    expect(graphApi.createMediaContainer).not.toHaveBeenCalled();
+    // Debe consultar con el container_id existente y publicar
+    expect(graphApi.getContainerStatus).toHaveBeenCalledWith('container-existing-123', fakeToken);
+    expect(graphApi.publishContainer).toHaveBeenCalledWith('ext-acc-1', fakeToken, 'container-existing-123');
+
+    // Debe quedar en 'published'
+    expect(setMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'published',
+        error_message: null,
+      })
+    );
+  });
+
+  it('should mark post as failed when container is still IN_PROGRESS after 15 minutes from scheduled_at', async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const mockPost = {
+      id: 'post-video-expired',
+      account_id: 'acc-1',
+      status: 'pending',
+      scheduled_at: nowSec - 16 * 60, // 16 minutos atrás (> 15 min)
+      media_urls: JSON.stringify(['https://example.com/story.mp4']),
+      caption: null,
+      container_id: 'container-stuck',
+      type: 'story',
+    };
+    const mockAccount = {
+      id: 'acc-1',
+      external_id: 'ext-acc-1',
+      access_token: encryptedToken,
+    };
+
+    const selectMock = vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          limit: vi.fn()
+            .mockResolvedValueOnce([mockPost])
+            .mockResolvedValueOnce([mockAccount]),
+        })
+      })
+    });
+    // @ts-ignore
+    db.select.mockImplementation(selectMock);
+
+    const setMock = vi.fn().mockReturnValue({
+      where: vi.fn().mockResolvedValue(true)
+    });
+    const updateMock = vi.fn().mockReturnValue({ set: setMock });
+    // @ts-ignore
+    db.update.mockImplementation(updateMock);
+
+    vi.mocked(graphApi.getContainerStatus).mockResolvedValue({ statusCode: 'IN_PROGRESS' });
+
+    await publishPost('post-video-expired');
+
+    expect(graphApi.publishContainer).not.toHaveBeenCalled();
+    // Debe quedar en failed
+    expect(setMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'failed',
+        error_message: expect.stringContaining('exceeded 15 minutes'),
+      })
+    );
+  });
+
+  it('should mark post as failed immediately when Meta returns ERROR or EXPIRED', async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const mockPost = {
+      id: 'post-video-err',
+      account_id: 'acc-1',
+      status: 'pending',
+      scheduled_at: nowSec - 60,
+      media_urls: JSON.stringify(['https://example.com/story.mp4']),
+      caption: null,
+      container_id: 'container-err',
+      type: 'story',
+    };
+    const mockAccount = {
+      id: 'acc-1',
+      external_id: 'ext-acc-1',
+      access_token: encryptedToken,
+    };
+
+    const selectMock = vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          limit: vi.fn()
+            .mockResolvedValueOnce([mockPost])
+            .mockResolvedValueOnce([mockAccount]),
+        })
+      })
+    });
+    // @ts-ignore
+    db.select.mockImplementation(selectMock);
+
+    const setMock = vi.fn().mockReturnValue({
+      where: vi.fn().mockResolvedValue(true)
+    });
+    const updateMock = vi.fn().mockReturnValue({ set: setMock });
+    // @ts-ignore
+    db.update.mockImplementation(updateMock);
+
+    vi.mocked(graphApi.getContainerStatus).mockResolvedValue({ statusCode: 'ERROR' });
+
+    await publishPost('post-video-err');
+
+    expect(graphApi.getContainerStatus).toHaveBeenCalledTimes(1);
+    expect(graphApi.publishContainer).not.toHaveBeenCalled();
+    expect(setMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'failed',
+        error_message: 'Container status: ERROR',
+      })
+    );
   });
 });
