@@ -1,102 +1,118 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import fastify from 'fastify';
-import { postsRoutes } from './posts.routes.js';
-import * as postsService from './posts.service.js';
-import crypto from 'node:crypto';
-
-vi.mock('./posts.service.js');
-
-describe('Posts Routes', () => {
-  const app = fastify();
-  app.register(postsRoutes, { prefix: '/posts' });
-
-  beforeEach(() => {
-    vi.resetAllMocks();
+import { beforeEach, describe, it, expect, vi } from "vitest";
+import { buildApp } from "../../server.js";
+import { clear, fixture, headers } from "../../test-helpers.js";
+import { sqlite } from "../../db/index.js";
+vi.mock("../../meta/media.js", async (original) => {
+  const media = (url: string) => ({
+    url,
+    mimeType: url.includes("video") ? "video/mp4" : "image/jpeg",
+    size: 1000,
+    width: 1080,
+    height: 1080,
+    duration: url.includes("video") ? 5 : 0,
+    frameRate: 30,
+    videoCodec: url.includes("video") ? "h264" : "mjpeg",
+    bitrate: 10000,
+    sha256: "fixture",
   });
+  return {
+    ...(await original<any>()),
+    inspectMedia: vi.fn(async (url: string) => media(url)),
+    inspectMediaList: vi.fn(async (urls: string[]) => urls.map(media)),
+  };
+});
 
-  it('should create a post', async () => {
-    vi.mocked(postsService.createPost).mockResolvedValue({ id: '11111111-1111-1111-1111-111111111111' });
-
-    const payload = {
-      accountId: crypto.randomUUID(),
-      caption: 'Test post',
-      mediaUrls: ['https://example.com/img.jpg'],
-      thumbOffset: 3000,
-      coverUrl: 'https://example.com/cover.jpg',
-      scheduledAt: Math.floor(Date.now() / 1000) + 3600, // 1 hour in future
-    };
-
-    const response = await app.inject({
-      method: 'POST',
-      url: '/posts',
+describe("post contract", () => {
+  beforeEach(clear);
+  it("persists idempotent intent and rejects changed payload", async () => {
+    const a = buildApp(),
+      f = fixture(),
+      payload = {
+        accountId: f.account,
+        mediaUrls: ["https://media.example.test/a.jpg"],
+        scheduledAt: Math.floor(Date.now() / 1000) + 60,
+      };
+    const h = { ...headers("POST", "/posts"), "idempotency-key": "intent-1" };
+    const one = await a.inject({
+      method: "POST",
+      url: "/posts",
+      headers: h,
       payload,
     });
-
-    expect(response.statusCode).toBe(201);
-    expect(response.json().id).toBe('11111111-1111-1111-1111-111111111111');
-    expect(postsService.createPost).toHaveBeenCalledWith(payload);
-  });
-
-  it('should create a post with an explicit type', async () => {
-    vi.mocked(postsService.createPost).mockResolvedValue({ id: '11111111-1111-1111-1111-111111111111' });
-
-    const payload = {
-      accountId: crypto.randomUUID(),
-      caption: 'Historia',
-      mediaUrls: ['https://example.com/img.jpg'],
-      type: 'story' as const,
-      scheduledAt: Math.floor(Date.now() / 1000) + 3600,
-    };
-
-    const response = await app.inject({
-      method: 'POST',
-      url: '/posts',
+    expect(one.statusCode).toBe(201);
+    const two = await a.inject({
+      method: "POST",
+      url: "/posts",
+      headers: h,
       payload,
     });
-
-    expect(response.statusCode).toBe(201);
-    expect(postsService.createPost).toHaveBeenCalledWith(payload);
-  });
-
-  it('should reject an invalid post type', async () => {
-    const response = await app.inject({
-      method: 'POST',
-      url: '/posts',
-      payload: {
-        accountId: crypto.randomUUID(),
-        mediaUrls: ['https://example.com/img.jpg'],
-        type: 'carrete',
-        scheduledAt: Math.floor(Date.now() / 1000) + 3600,
-      },
+    expect(two.json()).toEqual(one.json());
+    const conflict = await a.inject({
+      method: "POST",
+      url: "/posts",
+      headers: h,
+      payload: { ...payload, caption: "changed" },
     });
-
-    expect(response.statusCode).toBe(400);
+    expect(conflict.statusCode).toBe(409);
+    expect(
+      (sqlite.prepare("SELECT count(*) n FROM posts").get() as any).n,
+    ).toBe(1);
+    await a.close();
   });
-
-  it('should list posts', async () => {
-    const mockPost = {
-      id: '11111111-1111-1111-1111-111111111111',
-      account_id: '22222222-2222-2222-2222-222222222222',
-      caption: 'Test',
-      media_urls: ['https://example.com/img.jpg'],
-      scheduled_at: 1700000000,
-      status: 'pending' as const,
-      container_id: null,
-      error_message: null,
-      created_at: 1600000000,
-      updated_at: 1600000000,
-    };
-    
-    vi.mocked(postsService.listPosts).mockResolvedValue([mockPost]);
-
-    const response = await app.inject({
-      method: 'GET',
-      url: '/posts?status=pending&limit=10',
+  it("denies cross agency/client and atomically cancels", async () => {
+    const a = buildApp(),
+      f = fixture(),
+      payload = {
+        accountId: f.account,
+        mediaUrls: ["https://media.example.test/a.jpg"],
+        scheduledAt: Math.floor(Date.now() / 1000) + 60,
+      };
+    const made = await a.inject({
+      method: "POST",
+      url: "/posts",
+      headers: { ...headers("POST", "/posts"), "idempotency-key": "intent" },
+      payload,
     });
-
-    expect(response.statusCode).toBe(200);
-    const body = response.json();
-    expect(body.posts).toHaveLength(1);
-    expect(postsService.listPosts).toHaveBeenCalledWith({ status: 'pending', limit: 10, offset: 0 });
+    const path = "/posts/" + made.json().id;
+    for (const scope of [{ agencyId: "agency-b" }, { clientId: "client-b" }])
+      expect(
+        (await a.inject({ url: path, headers: headers("GET", path, scope) }))
+          .statusCode,
+      ).toBe(404);
+    expect(
+      (
+        await a.inject({
+          method: "DELETE",
+          url: path,
+          headers: headers("DELETE", path),
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(
+      (sqlite.prepare("SELECT status FROM posts").get() as any).status,
+    ).toBe("cancelled");
+    sqlite.prepare("UPDATE posts SET status='publishing'").run();
+    expect(
+      (
+        await a.inject({
+          method: "DELETE",
+          url: path,
+          headers: headers("DELETE", path),
+        })
+      ).statusCode,
+    ).toBe(409);
+    await a.close();
+  });
+  it("validates bounded pagination and explicit types", async () => {
+    const a = buildApp();
+    for (const url of [
+      "/posts?limit=101",
+      "/posts?offset=-1",
+      "/posts?status=nonsense",
+    ])
+      expect(
+        (await a.inject({ url, headers: headers("GET", url) })).statusCode,
+      ).toBe(400);
+    await a.close();
   });
 });

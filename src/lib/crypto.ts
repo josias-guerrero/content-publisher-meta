@@ -18,16 +18,27 @@ export function encrypt(plaintext: string): string {
   encrypted += cipher.final('base64');
   const authTag = cipher.getAuthTag();
 
-  return `${iv.toString('base64')}:${authTag.toString('base64')}:${encrypted}`;
+  return `${config.TOKEN_ENCRYPTION_KEY_ID}:${iv.toString('base64')}:${authTag.toString('base64')}:${encrypted}`;
 }
 
 /**
  * Descifra un string generado por encrypt().
  */
 export function decrypt(encryptedText: string): string {
-  const key = Buffer.from(config.TOKEN_ENCRYPTION_KEY, 'hex');
   const parts = encryptedText.split(':');
-  
+  const keyId = parts.length === 4 ? parts.shift()! : 'legacy';
+  const previous = JSON.parse(config.TOKEN_PREVIOUS_KEYS) as Record<
+    string,
+    string
+  >;
+  const hex =
+    keyId === config.TOKEN_ENCRYPTION_KEY_ID
+      ? config.TOKEN_ENCRYPTION_KEY
+      : (previous[keyId] ??
+        (keyId === 'legacy' ? config.TOKEN_ENCRYPTION_KEY : undefined));
+  if (!hex) throw new Error('Unknown encryption key version');
+  const key = Buffer.from(hex, 'hex');
+
   if (parts.length !== 3) {
     throw new Error('Invalid encrypted text format');
   }

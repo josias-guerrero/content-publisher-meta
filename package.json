@@ -27,5 +27,17 @@
     "node-cron": "^4.6.0",
     "pino": "^10.3.1",
     "zod": "^4.4.3"
+  },
+  "scripts": {
+    "dev": "tsx src/server.ts",
+    "test": "vitest run && node ops/runtime.test.cjs",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.tools.json --noEmit",
+    "db:migrate": "tsx src/db/prepare.ts",
+    "check:staging": "tsx scripts/check-readiness.ts",
+    "fixtures:media": "tsx scripts/make-test-media.ts",
+    "backup": "tsx scripts/backup.ts",
+    "prepare:runtime": "tsx scripts/prepare-runtime.ts",
+    "test:ops": "node ops/runtime.test.cjs",
+    "env:staging": "node scripts/generate-staging-env.cjs"
   }
 }

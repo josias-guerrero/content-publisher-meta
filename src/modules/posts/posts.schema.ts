@@ -2,8 +2,8 @@ import { z } from 'zod';
 
 export const createPostSchema = z.object({
   accountId: z.string().uuid(),
-  caption: z.string().optional(),
-  mediaUrls: z.array(z.string().url()).min(1),
+  caption: z.string().max(2200).optional(),
+  mediaUrls: z.array(z.string().url()).min(1).max(10),
   type: z.enum(['post', 'reels', 'story']).optional(), // feed / reel / historia (IG)
   thumbOffset: z.number().int().nonnegative().optional(), // milisegundos
   coverUrl: z.string().url().optional(), // URL pública

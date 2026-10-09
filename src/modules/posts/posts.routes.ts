@@ -1,51 +1,44 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { createPostSchema } from './posts.schema.js';
-import * as postsService from './posts.service.js';
-
-export async function postsRoutes(fastify: FastifyInstance) {
-  fastify.post('/', async (request, reply) => {
-    try {
-      const data = createPostSchema.parse(request.body);
-      const result = await postsService.createPost(data);
-      return reply.status(201).send(result);
-    } catch (err: any) {
-      return reply.status(400).send({ error: err.message });
-    }
+import * as service from './posts.service.js';
+const id = (params: unknown) =>
+  z.object({ id: z.string().uuid() }).parse(params).id;
+export async function postsRoutes(app: FastifyInstance) {
+  app.post('/', async (req, reply) =>
+    reply
+      .code(201)
+      .send(
+        await service.createPost(
+          createPostSchema.parse(req.body),
+          req.headers['idempotency-key'] as string,
+        ),
+      ),
+  );
+  app.get('/', async (req) => ({
+    posts: await service.listPosts(
+      z
+        .object({
+          status: z
+            .enum([
+              'pending',
+              'publishing',
+              'published',
+              'failed',
+              'cancelled',
+              'reconciling',
+            ])
+            .optional(),
+          limit: z.coerce.number().int().min(1).max(100).default(20),
+          offset: z.coerce.number().int().min(0).default(0),
+        })
+        .parse(req.query),
+    ),
+  }));
+  app.get('/:id', async (req) => service.getPost(id(req.params)));
+  app.delete('/:id', async (req) => {
+    await service.cancelPost(id(req.params));
+    return { success: true };
   });
-
-  fastify.get('/', async (request, reply) => {
-    const querySchema = z.object({
-      status: z.string().optional(),
-      limit: z.coerce.number().default(20),
-      offset: z.coerce.number().default(0),
-    });
-    
-    const query = querySchema.parse(request.query);
-    const posts = await postsService.listPosts(query);
-    return { posts };
-  });
-
-  fastify.get('/:id', async (request, reply) => {
-    const paramsSchema = z.object({ id: z.string().uuid() });
-    const { id } = paramsSchema.parse(request.params);
-    
-    const post = await postsService.getPost(id);
-    if (!post) {
-      return reply.status(404).send({ error: 'Post not found' });
-    }
-    return post;
-  });
-
-  fastify.delete('/:id', async (request, reply) => {
-    try {
-      const paramsSchema = z.object({ id: z.string().uuid() });
-      const { id } = paramsSchema.parse(request.params);
-      
-      await postsService.cancelPost(id);
-      return { success: true };
-    } catch (err: any) {
-      return reply.status(400).send({ error: err.message });
-    }
-  });
+  app.post('/:id/retry', async (req) => service.retryPost(id(req.params)));
 }

@@ -20,14 +20,16 @@ ENV DATABASE_PATH=/app/data/publisher.db
 
 # curl para el healthcheck externo de Coolify (la imagen slim no lo trae)
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
+    && apt-get install -y --no-install-recommends curl ffmpeg sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app/node_modules ./node_modules
 COPY package.json drizzle.config.ts tsconfig.json ./
 COPY src ./src
+COPY scripts ./scripts
+COPY ops ./ops
 
-RUN mkdir -p /app/data && chown -R node:node /app
+RUN mkdir -p /app/data /deletion-ledger /backups /deletion-replica && chown -R node:node /app /deletion-ledger /backups /deletion-replica
 
 USER node
 
@@ -36,5 +38,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
   CMD node -e "fetch('http://localhost:' + (process.env.PORT || 3000) + '/health').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"
 
-# Limpia cuentas vinculadas duplicadas (necesario antes del índice único), aplica el esquema e inicia el servidor
-CMD ["sh", "-c", "./node_modules/.bin/tsx src/db/prepare.ts && ./node_modules/.bin/drizzle-kit push && exec ./node_modules/.bin/tsx src/server.ts"]
+# Migrations are an explicit, backed-up operator action.
+CMD ["sh", "ops/entrypoint.sh"]

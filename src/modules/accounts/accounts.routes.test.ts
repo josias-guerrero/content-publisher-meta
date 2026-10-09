@@ -1,153 +1,60 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import fastify from 'fastify';
-import { accountsRoutes } from './accounts.routes.js';
-import * as accountsService from './accounts.service.js';
-import * as graphApi from '../../meta/graph-api.js';
-
-vi.mock('./accounts.service.js');
-vi.mock('../../meta/graph-api.js');
-
-describe('Accounts Routes', () => {
-  const app = fastify();
-  app.register(accountsRoutes, { prefix: '/accounts' });
-
-  beforeEach(() => {
-    vi.resetAllMocks();
+import { beforeEach, describe, it, expect } from 'vitest';
+import { buildApp } from '../../server.js';
+import { clear, fixture, headers } from '../../test-helpers.js';
+describe('account authorization', () => {
+  beforeEach(clear);
+  it('requires service and signed context', async () => {
+    const a = buildApp();
+    expect((await a.inject('/accounts')).statusCode).toBe(401);
+    expect((await a.inject({ url: '/auth/sessions/unknown' })).statusCode).toBe(
+      401,
+    );
+    expect((await a.inject('/health')).statusCode).toBe(200);
+    await a.close();
   });
-
-  it('should list accounts', async () => {
-    vi.mocked(accountsService.listAccounts).mockResolvedValue([
-      {
-        id: '12345678-1234-1234-1234-123456789012',
-        platform: 'instagram',
-        external_id: 'ext-1',
-        name: 'mi.marca',
-        token_expires_at: 1700000000,
-        created_at: 1600000000,
-      },
-    ]);
-
-    const response = await app.inject({
-      method: 'GET',
+  it('scopes assets and never exposes credentials', async () => {
+    const a = buildApp();
+    fixture();
+    const own = await a.inject({
       url: '/accounts',
+      headers: headers('GET', '/accounts'),
     });
-
-    expect(response.statusCode).toBe(200);
-    const body = response.json();
-    expect(body.accounts).toHaveLength(1);
-    expect(body.accounts[0].id).toBe('12345678-1234-1234-1234-123456789012');
-    expect(body.accounts[0].name).toBe('mi.marca');
+    expect(own.json().accounts).toHaveLength(1);
+    expect(own.body).not.toContain('access_token');
+    for (const ctx of [{ agencyId: 'b' }, { clientId: 'b' }])
+      expect(
+        (
+          await a.inject({
+            url: '/accounts',
+            headers: headers('GET', '/accounts', ctx),
+          })
+        ).json().accounts,
+      ).toHaveLength(0);
+    await a.close();
   });
-
-  it('should create an account', async () => {
-    vi.mocked(accountsService.createAccount).mockResolvedValue({ id: '87654321-4321-4321-4321-210987654321' });
-
-    const payload = {
-      platform: 'facebook',
-      externalId: 'ext-2',
-      accessToken: 'dummy-token',
-      tokenExpiresAt: 1700000000,
-    };
-
-    const response = await app.inject({
-      method: 'POST',
-      url: '/accounts',
-      payload,
-    });
-
-    expect(response.statusCode).toBe(201);
-    const body = response.json();
-    expect(body.id).toBe('87654321-4321-4321-4321-210987654321');
-    expect(accountsService.createAccount).toHaveBeenCalledWith(payload);
+  it('does not delete an asset or its history', async () => {
+    const a = buildApp(),
+      f = fixture(),
+      path = '/accounts/' + f.account;
+    expect(
+      (
+        await a.inject({
+          method: 'DELETE',
+          url: path,
+          headers: headers('DELETE', path),
+        })
+      ).statusCode,
+    ).toBe(409);
+    await a.close();
   });
+});
 
-  it('deletes an existing account', async () => {
-    vi.mocked(accountsService.deleteAccount).mockResolvedValue({ changes: 1 } as never);
-
-    const response = await app.inject({
-      method: 'DELETE',
-      url: '/accounts/acc-1',
-    });
-
-    expect(response.statusCode).toBe(204);
-    expect(accountsService.deleteAccount).toHaveBeenCalledWith('acc-1');
+it('rejects a context signed for a different route', async () => {
+  const app = buildApp();
+  const r = await app.inject({
+    url: '/accounts',
+    headers: headers('GET', '/posts'),
   });
-
-  it('returns 404 when deleting an unknown account', async () => {
-    vi.mocked(accountsService.deleteAccount).mockResolvedValue({ changes: 0 } as never);
-
-    const response = await app.inject({
-      method: 'DELETE',
-      url: '/accounts/unknown-id',
-    });
-
-    expect(response.statusCode).toBe(404);
-  });
-
-  it('returns 404 when testing an unknown account', async () => {
-    vi.mocked(accountsService.getAccountWithToken).mockResolvedValue(null);
-
-    const response = await app.inject({
-      method: 'POST',
-      url: '/accounts/unknown-id/test',
-    });
-
-    expect(response.statusCode).toBe(404);
-  });
-
-  it('validates an instagram account and checks container status without publishing', async () => {
-    vi.mocked(accountsService.getAccountWithToken).mockResolvedValue({
-      id: 'acc-1',
-      platform: 'instagram',
-      external_id: 'ig-1',
-      access_token: 'plain-token',
-      token_expires_at: 1700000000,
-      created_at: 1600000000,
-    });
-    vi.mocked(graphApi.getInstagramUser).mockResolvedValue({
-      userId: 'ig-1',
-      username: 'myuser',
-      accountType: 'BUSINESS',
-    });
-    vi.mocked(graphApi.createMediaContainer).mockResolvedValue({ containerId: 'container-1' });
-    vi.mocked(graphApi.getContainerStatus).mockResolvedValue({ statusCode: 'FINISHED' });
-
-    const response = await app.inject({
-      method: 'POST',
-      url: '/accounts/acc-1/test',
-      payload: { imageUrl: 'https://example.com/test.jpg' },
-    });
-
-    expect(response.statusCode).toBe(200);
-    const body = response.json();
-    expect(body.matched).toBe(true);
-    expect(body.account_type).toBe('BUSINESS');
-    expect(body.container).toEqual({ container_id: 'container-1', status: 'FINISHED' });
-    expect(graphApi.publishContainer).not.toHaveBeenCalled();
-  });
-
-  it('validates a facebook account against its pages', async () => {
-    vi.mocked(accountsService.getAccountWithToken).mockResolvedValue({
-      id: 'acc-2',
-      platform: 'facebook',
-      external_id: 'page-1',
-      access_token: 'plain-token',
-      token_expires_at: 1700000000,
-      created_at: 1600000000,
-    });
-    vi.mocked(graphApi.getFacebookPages).mockResolvedValue([
-      { id: 'page-1', name: 'My Page' },
-      { id: 'page-2', name: 'Other Page' },
-    ]);
-
-    const response = await app.inject({
-      method: 'POST',
-      url: '/accounts/acc-2/test',
-    });
-
-    expect(response.statusCode).toBe(200);
-    const body = response.json();
-    expect(body.accessible).toBe(true);
-    expect(body.page).toEqual({ id: 'page-1', name: 'My Page' });
-  });
+  expect(r.statusCode).toBe(401);
+  await app.close();
 });

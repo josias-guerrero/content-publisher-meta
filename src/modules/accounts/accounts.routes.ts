@@ -1,75 +1,79 @@
 import type { FastifyInstance } from 'fastify';
-import { createAccountSchema, testAccountSchema } from './accounts.schema.js';
-import * as accountsService from './accounts.service.js';
-import * as graphApi from '../../meta/graph-api.js';
-
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-export async function accountsRoutes(fastify: FastifyInstance) {
-  fastify.post('/', async (request, reply) => {
-    const data = createAccountSchema.parse(request.body);
-    const result = await accountsService.createAccount(data);
-    return reply.status(201).send(result);
+import { z } from 'zod';
+import { sqlite } from '../../db/index.js';
+import { context } from '../../security/context.js';
+import { accountGrant, activeGrant } from '../../security/access.js';
+import { decrypt } from '../../lib/crypto.js';
+import { AppError } from '../../lib/errors.js';
+import { capabilities } from '../../meta/media.js';
+import * as graph from '../../meta/graph-api.js';
+export async function accountsRoutes(app: FastifyInstance) {
+  app.post('/', async () => {
+    throw new AppError(
+      409,
+      'MANUAL_TOKEN_DISABLED',
+      'Use verified OAuth asset selection',
+    );
   });
-
-  fastify.get('/', async (request, reply) => {
-    const accounts = await accountsService.listAccounts();
-    return { accounts };
+  app.get('/', async (req) => {
+    const q = z
+        .object({
+          limit: z.coerce.number().int().min(1).max(100).default(20),
+          offset: z.coerce.number().int().min(0).default(0),
+        })
+        .parse(req.query),
+      c = context();
+    const rows = sqlite
+      .prepare(
+        `SELECT a.id,a.platform,a.external_id,a.name,a.created_at,c.id connection_id,c.status,c.expires_at token_expires_at,g.capabilities FROM accounts a JOIN grants g ON a.id=g.account_id JOIN connections c ON c.id=g.connection_id WHERE g.agency_id=? AND g.client_id=? ORDER BY a.created_at DESC,a.id LIMIT ? OFFSET ?`,
+      )
+      .all(c.agencyId, c.clientId, q.limit, q.offset) as any[];
+    return {
+      accounts: rows.map((r) => ({
+        ...r,
+        capabilities: capabilities(r.platform, JSON.parse(r.capabilities)),
+      })),
+    };
   });
-
-  fastify.delete('/:id', async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const result = await accountsService.deleteAccount(id);
-    if (!result.changes) {
-      return reply.status(404).send({ error: 'Account not found' });
-    }
-    return reply.status(204).send();
+  app.get('/:id/capabilities', async (req) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params),
+      g = accountGrant(id),
+      a = sqlite
+        .prepare('SELECT platform FROM accounts WHERE id=?')
+        .get(id) as any;
+    return capabilities(a.platform, JSON.parse(g.capabilities));
   });
-
-  fastify.post('/:id/test', async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const body = testAccountSchema.parse(request.body ?? {});
-
-    const account = await accountsService.getAccountWithToken(id);
-    if (!account) {
-      return reply.status(404).send({ error: 'Account not found' });
-    }
-
-    try {
-      if (account.platform === 'facebook') {
-        const pages = await graphApi.getFacebookPages(account.access_token);
-        const page = pages.find((p) => p.id === account.external_id) ?? null;
-        return { platform: 'facebook', external_id: account.external_id, page, accessible: !!page };
-      }
-
-      const user = await graphApi.getInstagramUser(account.access_token);
-      const result: Record<string, unknown> = {
-        platform: 'instagram',
-        external_id: account.external_id,
-        matched: user.userId === account.external_id,
-        username: user.username,
+  app.delete('/:id', async (req) => {
+    accountGrant((req.params as any).id);
+    throw new AppError(
+      409,
+      'USE_DISCONNECT',
+      'Disconnect the connection; account/history deletion is a separate operation',
+    );
+  });
+  app.post('/:id/test', async (req) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params),
+      g = activeGrant(id),
+      a = sqlite.prepare('SELECT * FROM accounts WHERE id=?').get(id) as any;
+    const token = decrypt(g.token);
+    if (a.platform === 'instagram') {
+      const user = await graph.getInstagramUser(token);
+      return {
+        platform: a.platform,
+        matched: String(user.userId) === a.external_id,
         account_type: user.accountType,
+        published: false,
+        checks: ['identity'],
+        publishingPermissionVerified: false,
       };
-
-      if (body.imageUrl) {
-        const { containerId } = await graphApi.createMediaContainer(
-          account.external_id,
-          account.access_token,
-          { imageUrl: body.imageUrl }
-        );
-        let statusCode: string = 'IN_PROGRESS';
-        for (let i = 0; i < 5; i++) {
-          const status = await graphApi.getContainerStatus(containerId, account.access_token);
-          statusCode = status.statusCode;
-          if (statusCode === 'FINISHED' || statusCode === 'ERROR' || statusCode === 'EXPIRED') break;
-          await sleep(2000);
-        }
-        result.container = { container_id: containerId, status: statusCode };
-      }
-
-      return result;
-    } catch (err: any) {
-      return reply.status(502).send({ error: err.message });
     }
+    const identity = await graph.getFacebookUserId(token);
+    return {
+      platform: a.platform,
+      matched: identity === a.external_id,
+      published: false,
+      checks: ['identity'],
+      publishingPermissionVerified: false,
+    };
   });
 }

@@ -1,74 +1,37 @@
-import { randomUUID } from 'node:crypto';
-import { eq } from 'drizzle-orm';
-import { db } from '../../db/index.js';
-import { accounts } from '../../db/schema.js';
-import { encrypt, decrypt } from '../../lib/crypto.js';
-import * as graphApi from '../../meta/graph-api.js';
+import { sqlite } from '../../db/index.js';
+import { context } from '../../security/context.js';
+import { activeGrant, accountGrant } from '../../security/access.js';
+import { decrypt } from '../../lib/crypto.js';
+import { AppError } from '../../lib/errors.js';
 import type { CreateAccountInput } from './accounts.schema.js';
-
-async function resolveAccountName(
-  platform: CreateAccountInput['platform'],
-  externalId: string,
-  accessToken: string
-): Promise<string> {
-  if (platform === 'instagram') {
-    const user = await graphApi.getInstagramUser(accessToken);
-    return user.username;
-  }
-
-  const pages = await graphApi.getFacebookPages(accessToken);
-  return pages.find((p) => p.id === externalId)?.name ?? externalId;
+/** Manual credential ingestion is intentionally disabled; use OAuth asset selection. */
+export async function createAccount(_data: CreateAccountInput) {
+  throw new AppError(
+    409,
+    'MANUAL_TOKEN_DISABLED',
+    'Use verified OAuth asset selection',
+  );
 }
-
-export async function createAccount(data: CreateAccountInput) {
-  const encryptedToken = encrypt(data.accessToken);
-  const name = data.name ?? (await resolveAccountName(data.platform, data.externalId, data.accessToken));
-
-  const [account] = await db
-    .insert(accounts)
-    .values({
-      id: randomUUID(),
-      platform: data.platform,
-      external_id: data.externalId,
-      name,
-      access_token: encryptedToken,
-      token_expires_at: data.tokenExpiresAt,
-      created_at: Math.floor(Date.now() / 1000),
-    })
-    .onConflictDoUpdate({
-      target: [accounts.platform, accounts.external_id],
-      set: {
-        name,
-        access_token: encryptedToken,
-        token_expires_at: data.tokenExpiresAt,
-      },
-    })
-    .returning({ id: accounts.id });
-
-  return { id: account.id };
-}
-
 export async function listAccounts() {
-  const result = await db
-    .select({
-      id: accounts.id,
-      platform: accounts.platform,
-      external_id: accounts.external_id,
-      name: accounts.name,
-      token_expires_at: accounts.token_expires_at,
-      created_at: accounts.created_at,
-    })
-    .from(accounts);
-
-  return result.map((account) => ({ ...account, name: account.name ?? account.external_id }));
+  const c = context();
+  return sqlite
+    .prepare(
+      'SELECT a.id,a.platform,a.external_id,a.name,a.created_at FROM accounts a JOIN grants g ON g.account_id=a.id WHERE g.agency_id=? AND g.client_id=? ORDER BY a.created_at DESC LIMIT 100',
+    )
+    .all(c.agencyId, c.clientId);
 }
-
 export async function getAccountWithToken(id: string) {
-  const result = await db.select().from(accounts).where(eq(accounts.id, id)).limit(1);
-  if (!result.length) return null;
-  return { ...result[0], access_token: decrypt(result[0].access_token) };
+  const grant = activeGrant(id),
+    a = sqlite
+      .prepare('SELECT id,platform,external_id,name FROM accounts WHERE id=?')
+      .get(id) as any;
+  return { ...a, access_token: decrypt(grant.token) };
 }
-
 export async function deleteAccount(id: string) {
-  return await db.delete(accounts).where(eq(accounts.id, id));
+  accountGrant(id);
+  throw new AppError(
+    409,
+    'USE_DISCONNECT',
+    'Account/history deletion is a separate coordinated operation',
+  );
 }

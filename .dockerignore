@@ -9,3 +9,13 @@ data
 .gitignore
 Dockerfile
 .dockerignore
+*.bak
+*.db
+*.sqlite*
+*.token
+.codebase-memory
+.agents
+.codex
+
+.secrets
+backups

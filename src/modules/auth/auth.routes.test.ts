@@ -1,94 +1,108 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import fastify from 'fastify';
-import { authRoutes } from './auth.routes.js';
-import * as graphApi from '../../meta/graph-api.js';
-import * as accountsService from '../accounts/accounts.service.js';
-
-vi.mock('../../config.js', () => ({
-  config: {
-    META_INSTAGRAM_APP_ID: 'ig-app',
-    META_INSTAGRAM_APP_SECRET: 'ig-secret',
-    META_FACEBOOK_APP_ID: 'fb-app',
-    META_FACEBOOK_APP_SECRET: 'fb-secret',
-    META_GRAPH_API_VERSION: 'v21.0',
-  },
+import { beforeEach, describe, it, expect, vi } from 'vitest';
+import { buildApp } from '../../server.js';
+import { clear, headers } from '../../test-helpers.js';
+import * as graph from '../../meta/graph-api.js';
+import { sqlite } from '../../db/index.js';
+vi.mock('../../meta/graph-api.js', async (original) => ({
+  ...(await original<any>()),
+  exchangeInstagramCode: vi.fn(),
+  exchangeInstagramToken: vi.fn(),
+  getInstagramUser: vi.fn(),
+  getGrantedPermissions: vi.fn(),
 }));
-vi.mock('../../meta/graph-api.js');
-vi.mock('../accounts/accounts.service.js');
-
-describe('Auth Routes', () => {
-  const app = fastify();
-  app.register(authRoutes, { prefix: '/auth' });
-
+describe('OAuth bound state', () => {
   beforeEach(() => {
-    vi.resetAllMocks();
+    clear();
+    vi.clearAllMocks();
   });
-
-  it('redirects to the Instagram authorize URL with publishing scopes', async () => {
-    const response = await app.inject({ method: 'GET', url: '/auth/instagram/login' });
-    expect(response.statusCode).toBe(302);
-    expect(response.headers.location).toContain('https://www.instagram.com/oauth/authorize');
-    expect(response.headers.location).toContain('instagram_business_content_publish');
+  it('rejects unsigned start and callback before exchange', async () => {
+    const a = buildApp();
+    expect((await a.inject('/auth/instagram/login')).statusCode).toBe(400);
+    expect(
+      (
+        await a.inject(
+          '/auth/instagram/callback?code=secret&state=' + 'a'.repeat(43),
+        )
+      ).statusCode,
+    ).toBe(400);
+    expect(graph.exchangeInstagramCode).not.toHaveBeenCalled();
+    await a.close();
   });
-
-  it('redirects to the Facebook dialog for business login', async () => {
-    const response = await app.inject({ method: 'GET', url: '/auth/facebook/login' });
-    expect(response.statusCode).toBe(302);
-    expect(response.headers.location).toContain('https://www.facebook.com/v21.0/dialog/oauth');
-    expect(response.headers.location).toContain('pages_manage_posts');
-  });
-
-  it('registers an instagram account on callback', async () => {
-    vi.mocked(graphApi.exchangeInstagramCode).mockResolvedValue({ accessToken: 'short', userId: 'ig-1' });
-    vi.mocked(graphApi.exchangeInstagramToken).mockResolvedValue({ accessToken: 'long', expiresIn: 5184000 });
-    vi.mocked(graphApi.getInstagramUser).mockResolvedValue({ userId: 'ig-1', username: 'myuser' });
-    vi.mocked(accountsService.createAccount).mockResolvedValue({ id: 'uuid-1' });
-
-    const response = await app.inject({ method: 'GET', url: '/auth/instagram/callback?code=abc' });
-
-    expect(response.statusCode).toBe(201);
-    const body = response.json();
-    expect(body.account.platform).toBe('instagram');
-    expect(body.account.external_id).toBe('ig-1');
-    expect(accountsService.createAccount).toHaveBeenCalledWith(
-      expect.objectContaining({ platform: 'instagram', externalId: 'ig-1', name: 'myuser', accessToken: 'long' })
-    );
-  });
-
-  it('registers one account per facebook page on callback', async () => {
-    vi.mocked(graphApi.exchangeFacebookCode).mockResolvedValue({ accessToken: 'short', expiresIn: 5000 });
-    vi.mocked(graphApi.refreshFacebookToken).mockResolvedValue({ accessToken: 'long', expiresIn: 5184000 });
-    vi.mocked(graphApi.getFacebookPages).mockResolvedValue([
-      { id: 'page-1', name: 'Page One' },
-      { id: 'page-2', name: 'Page Two' },
-    ]);
-    vi.mocked(accountsService.createAccount)
-      .mockResolvedValueOnce({ id: 'uuid-1' })
-      .mockResolvedValueOnce({ id: 'uuid-2' });
-
-    const response = await app.inject({ method: 'GET', url: '/auth/facebook/callback?code=abc' });
-
-    expect(response.statusCode).toBe(201);
-    const body = response.json();
-    expect(body.accounts).toHaveLength(2);
-    expect(body.accounts[0].external_id).toBe('page-1');
-    expect(body.accounts[1].external_id).toBe('page-2');
-    expect(accountsService.createAccount).toHaveBeenCalledTimes(2);
-    expect(accountsService.createAccount).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({ platform: 'facebook', externalId: 'page-1', name: 'Page One' })
-    );
-    expect(accountsService.createAccount).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ platform: 'facebook', externalId: 'page-2', name: 'Page Two' })
-    );
-  });
-
-  it('returns 400 when Meta reports an OAuth error', async () => {
-    const response = await app.inject({
-      method: 'GET',
-      url: '/auth/instagram/callback?error=access_denied&error_description=User+denied',
+  it('binds browser, consumes once, and requires explicit selection', async () => {
+    const a = buildApp();
+    const session = (
+      await a.inject({
+        method: 'POST',
+        url: '/auth/sessions',
+        headers: headers('POST', '/auth/sessions'),
+        payload: { platform: 'instagram' },
+      })
+    ).json();
+    const launchUrl = new URL(session.authorizationUrl);
+    const launch = await a.inject({
+      url: launchUrl.pathname + launchUrl.search,
+      headers: {
+        host: 'attacker.example',
+        'x-forwarded-proto': 'http',
+        'x-forwarded-host': 'attacker.example',
+      },
     });
-    expect(response.statusCode).toBe(400);
+    expect(
+      new URL(String(launch.headers.location)).searchParams.get('redirect_uri'),
+    ).toBe('https://publisher.example.test/auth/instagram/callback');
+    const state = new URL(String(launch.headers.location)).searchParams.get(
+      'state',
+    );
+    const cookie = String(launch.headers['set-cookie']).split(';')[0];
+    const callback = '/auth/instagram/callback?code=fake&state=' + state;
+    expect((await a.inject(callback)).statusCode).toBe(400);
+    expect(graph.exchangeInstagramCode).not.toHaveBeenCalled();
+    vi.mocked(graph.exchangeInstagramCode).mockResolvedValue({
+      accessToken: 'short',
+      userId: 'ig-1',
+    });
+    vi.mocked(graph.exchangeInstagramToken).mockResolvedValue({
+      accessToken: 'long',
+      expiresIn: 86400,
+    });
+    vi.mocked(graph.getInstagramUser).mockResolvedValue({
+      userId: 'ig-1',
+      username: 'test',
+      accountType: 'BUSINESS',
+    });
+    vi.mocked(graph.getGrantedPermissions).mockResolvedValue([
+      'instagram_business_basic',
+      'instagram_business_content_publish',
+    ]);
+    expect(
+      (await a.inject({ url: callback, headers: { cookie } })).statusCode,
+    ).toBe(200);
+    expect(
+      (sqlite.prepare('SELECT count(*) n FROM accounts').get() as any).n,
+    ).toBe(0);
+    expect(
+      (await a.inject({ url: callback, headers: { cookie } })).statusCode,
+    ).toBe(400);
+    expect(graph.exchangeInstagramCode).toHaveBeenCalledTimes(1);
+    const path = `/auth/sessions/${session.id}/complete`;
+    const result = await a.inject({
+      method: 'POST',
+      url: path,
+      headers: headers('POST', path),
+      payload: { assetIds: ['ig-1'] },
+    });
+    expect(result.statusCode).toBe(200);
+    expect(result.json().accounts).toHaveLength(1);
+    expect(
+      (
+        await a.inject({
+          method: 'POST',
+          url: path,
+          headers: headers('POST', path),
+          payload: { assetIds: ['ig-1'] },
+        })
+      ).json(),
+    ).toEqual(result.json());
+    await a.close();
   });
 });
