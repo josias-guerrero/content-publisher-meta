@@ -262,13 +262,16 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
             '<p>La autorización no se completó. Puedes cerrar esta ventana y volver a Tiko.</p>',
           );
       }
+      let phase = 'code_exchange';
       try {
         const redirect = `${config.PUBLIC_BASE_URL}/auth/${provider}/callback`;
         let token: string, expires: number, subject: string, assets: any[];
         if (provider === 'instagram') {
-          const short = await graph.exchangeInstagramCode(query.code, redirect),
-            long = await graph.exchangeInstagramToken(short.accessToken),
-            user = await graph.getInstagramUser(long.accessToken);
+          const short = await graph.exchangeInstagramCode(query.code, redirect);
+          phase = 'long_token_exchange';
+          const long = await graph.exchangeInstagramToken(short.accessToken);
+          phase = 'identity_lookup';
+          const user = await graph.getInstagramUser(long.accessToken);
           if (String(short.userId) !== String(user.userId))
             throw new Error('Identity mismatch');
           token = long.accessToken;
@@ -298,6 +301,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
             ),
           );
         }
+        phase = 'permission_check';
         const granted = await graph.getGrantedPermissions(provider, token);
         if (scopes[provider].some((s) => !granted.includes(s)))
           throw new AppError(
@@ -321,6 +325,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
             'Deletion is in progress',
           );
         const id = randomUUID();
+        phase = 'store_connection';
         sqlite.transaction(() => {
           sqlite
             .prepare(
@@ -353,7 +358,23 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
           .send(
             '<p>Autorización recibida. Cierra esta ventana y selecciona las cuentas en Tiko.</p>',
           );
-      } catch {
+      } catch (error) {
+        const metaError = error instanceof graph.MetaApiError ? error : null;
+        request.log.warn(
+          {
+            reqId: request.id,
+            provider,
+            phase,
+            errorCode: error instanceof AppError ? error.code : undefined,
+            errorName: error instanceof Error ? error.name : 'UnknownError',
+            metaStatus: metaError?.status,
+            metaCode: metaError?.code,
+            metaType: metaError?.type,
+            metaSubcode: metaError?.subcode,
+            metaTraceId: metaError?.traceId,
+          },
+          'OAuth callback failed; sensitive credentials omitted',
+        );
         sqlite
           .prepare(
             "UPDATE oauth_sessions SET status='failed',assets=NULL WHERE id=?",
