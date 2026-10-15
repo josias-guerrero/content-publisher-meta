@@ -272,8 +272,9 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
           const long = await graph.exchangeInstagramToken(short.accessToken);
           phase = 'identity_lookup';
           const user = await graph.getInstagramUser(long.accessToken);
-          if (String(short.userId) !== String(user.userId))
-            throw new Error('Identity mismatch');
+          // Use the subject returned by /me with the exchanged token. The
+          // OAuth token response and Graph profile can expose IDs in different
+          // scopes; the token-authenticated profile is canonical for API calls.
           token = long.accessToken;
           expires = now() + long.expiresIn;
           subject = String(user.userId);
