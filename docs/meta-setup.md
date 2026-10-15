@@ -15,6 +15,6 @@ Register exact callback origins and paths:
 
 Use each app's own secret for signed_request callbacks. Verify callback eligibility/requirements in the selected product; these paths are supported by this service, not asserted universally mandatory. Configure test app/roles and designated assets before production. Facebook Login for Business config_id is not fabricated or added: confirm if the actual product requires it; that product-specific configuration remains a rollout gate.
 
-OAuth callbacks always use PUBLIC_BASE_URL, never external forwarded headers. Declined or incomplete permissions fail authorization; pages require CREATE_CONTENT/MANAGE-compatible tasks. Check real consent and `/me/permissions` behavior for each configured app before promotion.
+OAuth callbacks always use PUBLIC_BASE_URL, never external forwarded headers. Facebook Login permissions are checked through Facebook Graph `/me/permissions`, and pages require CREATE_CONTENT/MANAGE-compatible tasks. Instagram Login does not use that Facebook edge: it records the scopes requested by its OAuth consent and verifies actual publish access with a designated live test publication. Check real consent and endpoint access for each configured app before promotion.
 
 Official references: [Instagram Login](https://www.postman.com/meta/instagram/folder/6raa77c/instagram-api-with-instagram-login), [Facebook API](https://www.postman.com/meta/facebook/documentation/r56bjfd/facebook-api). Reviewed 2026-10-07; live calls and panel evidence have not been performed in this work.

@@ -303,8 +303,18 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
           );
         }
         phase = 'permission_check';
-        const granted = await graph.getGrantedPermissions(provider, token);
-        if (scopes[provider].some((s) => !granted.includes(s)))
+        // Instagram Login tokens do not support the Facebook Graph
+        // `/me/permissions` edge. The Instagram OAuth consent requested the
+        // scopes above; endpoint-specific access is confirmed by the live
+        // diagnostic/publish calls. Facebook Login still exposes that edge.
+        const granted =
+          provider === 'instagram'
+            ? scopes.instagram
+            : await graph.getGrantedPermissions(provider, token);
+        if (
+          provider === 'facebook' &&
+          scopes[provider].some((s) => !granted.includes(s))
+        )
           throw new AppError(
             403,
             'PERMISSION_MISSING',
