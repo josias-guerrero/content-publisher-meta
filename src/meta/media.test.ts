@@ -3,7 +3,7 @@ import https from "node:https";
 import { EventEmitter } from "node:events";
 import { Readable } from "node:stream";
 import { lookup } from "node:dns/promises";
-import { inspectMedia, validateFormat } from "./media.js";
+import { capabilities, inspectMedia, validateFormat } from "./media.js";
 import { probeFile } from "./media-probe.js";
 vi.mock("node:dns/promises", () => ({ lookup: vi.fn() }));
 vi.mock("./media-probe.js", async (original) => ({
@@ -114,4 +114,55 @@ it("enforces duration, codec, aspect ratio and thumbnail position", () => {
       {},
     ),
   ).toThrow();
+});
+
+it("allows Instagram Login stories for professional Creator and Business accounts only", () => {
+  const image = {
+    url: "https://media.example.test/story.jpg",
+    mimeType: "image/jpeg",
+    size: 100,
+    width: 1080,
+    height: 1920,
+    duration: 0,
+    videoCodec: "mjpeg",
+    sha256: "image",
+  };
+  const video = {
+    url: "https://media.example.test/story.mp4",
+    mimeType: "video/mp4",
+    size: 100,
+    width: 1080,
+    height: 1920,
+    duration: 5,
+    videoCodec: "h264",
+    frameRate: 30,
+    bitrate: 1000,
+    sha256: "video",
+  };
+
+  expect(
+    capabilities("instagram", { accountType: "MEDIA_CREATOR" }).formats,
+  ).toContain("instagram.story_image");
+  expect(
+    capabilities("instagram", { accountType: "MEDIA_CREATOR" }).formats,
+  ).toContain("instagram.story_video");
+  expect(
+    capabilities("instagram", { accountType: "BUSINESS" }).formats,
+  ).toContain("instagram.story_image");
+  expect(
+    capabilities("instagram", { accountType: "PERSONAL" }).formats,
+  ).not.toContain("instagram.story_image");
+  expect(capabilities("facebook", {}).formats).toContain(
+    "facebook.story_image",
+  );
+  expect(
+    validateFormat("instagram", "story", [image], {
+      accountType: "MEDIA_CREATOR",
+    }),
+  ).toBe("instagram.story_image");
+  expect(
+    validateFormat("instagram", "story", [video], {
+      accountType: "MEDIA_CREATOR",
+    }),
+  ).toBe("instagram.story_video");
 });

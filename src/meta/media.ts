@@ -265,16 +265,6 @@ export function validateFormat(
     );
   if (
     platform === "instagram" &&
-    type === "story" &&
-    capabilities.accountType !== "BUSINESS"
-  )
-    throw new AppError(
-      400,
-      "ACCOUNT_INELIGIBLE",
-      "Instagram stories require a business account",
-    );
-  if (
-    platform === "instagram" &&
     media.some(
       (m) =>
         m.mimeType.startsWith("image/") &&
@@ -399,7 +389,7 @@ export function capabilities(platform: string, info: any) {
         x.startsWith(`${platform}.`) &&
         (!x.includes("story") ||
           platform !== "instagram" ||
-          info.accountType === "BUSINESS"),
+          ["BUSINESS", "MEDIA_CREATOR"].includes(info.accountType)),
     ),
     maxMedia: 10,
     requiresPublicHttps: true,

@@ -166,7 +166,7 @@ Usar preferentemente apps y activos dedicados para el ensayo destructivo. Si dec
 | Privacidad | https://staging.tikocloud.com/privacidad |
 | Instrucciones de eliminación | https://staging.tikocloud.com/eliminacion-de-datos |
 
-Configurar las URLs y roles que admita cada producto del panel de Meta; no todas las casillas son universales. Se necesita una cuenta Instagram profesional controlada por ti, Business para cubrir Stories en esta implementación; para Facebook, una página de prueba con un usuario que pueda publicar. Aceptar las invitaciones/roles de prueba correspondientes. Iniciar OAuth desde Tiko: los tokens de usuario/página se obtienen en ese flujo, no se copian como variables del servidor. No necesitas poner contraseñas de Instagram/Facebook en `.env`.
+Configurar las URLs y roles que admita cada producto del panel de Meta; no todas las casillas son universales. Para Instagram Login se necesita una cuenta profesional (Business o Creator); prueba Stories en staging y conserva el bloqueo si Meta rechaza el formato para el tipo de cuenta. Para Facebook, usa una página de prueba con un usuario que pueda publicar. Aceptar las invitaciones/roles de prueba correspondientes. Iniciar OAuth desde Tiko: los tokens de usuario/página se obtienen en ese flujo, no se copian como variables del servidor. No necesitas poner contraseñas de Instagram/Facebook en `.env`.
 
 La evidencia final para App Review debe corresponder a la app que se presentará. Una prueba exitosa en otra app no demuestra el uso de permisos en ella. Ver [configuración Meta](meta-setup.md) y [guía de pruebas](guia-pruebas.md).
 

@@ -10,8 +10,8 @@ One inspection runs per process; concurrent requests receive retryable MEDIA_INS
 | Instagram photo | instagram.photo | one JPEG <=8 MB | container, status, publish |
 | Instagram carousel | instagram.carousel | 2–10 ordered images/videos | child containers, parent, publish |
 | Instagram reel | instagram.reel | one MP4/QuickTime | REELS; optional JPEG cover or thumb offset |
-| Instagram story image | instagram.story_image | one JPEG, BUSINESS account | STORIES |
-| Instagram story video | instagram.story_video | one video, BUSINESS account | STORIES |
+| Instagram story image | instagram.story_image | one JPEG, Business or Creator account via Instagram Login; verify live Meta acceptance | STORIES |
+| Instagram story video | instagram.story_video | one video, Business or Creator account via Instagram Login; verify live Meta acceptance | STORIES |
 | Facebook photo | facebook.photo | one image | photos; persist post_id |
 | Facebook multiple photos | facebook.carousel | 2–10 images only | unpublished photos, ordered feed |
 | Facebook video | facebook.video | one video | videos, async status reconciliation |
