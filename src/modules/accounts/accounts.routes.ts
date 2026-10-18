@@ -25,7 +25,7 @@ export async function accountsRoutes(app: FastifyInstance) {
       c = context();
     const rows = sqlite
       .prepare(
-        `SELECT a.id,a.platform,a.external_id,a.name,a.created_at,c.id connection_id,c.status,c.expires_at token_expires_at,g.capabilities FROM accounts a JOIN grants g ON a.id=g.account_id JOIN connections c ON c.id=g.connection_id WHERE g.agency_id=? AND g.client_id=? ORDER BY a.created_at DESC,a.id LIMIT ? OFFSET ?`,
+        `SELECT id,platform,external_id,name,created_at,connection_id,status,token_expires_at,capabilities FROM (SELECT a.id,a.platform,a.external_id,a.name,a.created_at,c.id connection_id,c.status,c.expires_at token_expires_at,g.capabilities,ROW_NUMBER() OVER (PARTITION BY a.id,g.agency_id,g.client_id ORDER BY CASE WHEN c.status='active' THEN 0 ELSE 1 END,c.created_at DESC,g.id DESC) rn FROM accounts a JOIN grants g ON a.id=g.account_id JOIN connections c ON c.id=g.connection_id WHERE g.agency_id=? AND g.client_id=?) WHERE rn=1 ORDER BY created_at DESC,id LIMIT ? OFFSET ?`,
       )
       .all(c.agencyId, c.clientId, q.limit, q.offset) as any[];
     return {
